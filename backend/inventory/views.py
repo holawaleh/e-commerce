@@ -37,18 +37,18 @@ class ProductViewSet(TenantScopedPermission, viewsets.ModelViewSet):
 
             return Product.objects.none()
 
-        # 1. Look up the correct model for this tenant's domain
+        # 1. Look up the correct model for this tenant's primary domain
         ProductModel = get_product_model_for_tenant(tenant)
         # 2. Filter to ONLY this tenant's data
         return ProductModel.objects.filter(tenant=tenant)
 
     # ── Dynamic serializer ───────────────────────────────────────
-    # Same logic: resolve at runtime based on tenant domain.
+    # Resolve at runtime based on tenant's primary domain.
     def get_serializer_class(self):
         tenant = self.request.user.tenant
-        if not tenant:
+        if not tenant or not tenant.primary_domain:
             return ProductBaseSerializer
-        return get_serializer_for_domain(tenant.domain)
+        return get_serializer_for_domain(tenant.primary_domain.code)
 
     # ── Inject tenant on create ──────────────────────────────────
     # The request body should NOT contain tenant — we set it server-side.

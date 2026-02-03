@@ -30,14 +30,47 @@ DOMAIN_CHOICES = [
 ]
 
 
+# ─── DOMAIN ──────────────────────────────────────────────────────
+# Separate model to allow tenants to have multiple domains.
+# Each domain has a code (e.g., 'pharmacy') and label.
+class Domain(models.Model):
+    code = models.CharField(max_length=40, unique=True, choices=DOMAIN_CHOICES)
+    label = models.CharField(max_length=200)
+    description = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["code"]
+
+    def __str__(self):
+        return self.label
+
+    def save(self, *args, **kwargs):
+        # Auto-set label from choices if not provided
+        if not self.label:
+            domain_dict = dict(DOMAIN_CHOICES)
+            self.label = domain_dict.get(self.code, self.code)
+        super().save(*args, **kwargs)
+
+
 # ─── TENANT ──────────────────────────────────────────────────────
 # One Tenant = one registered business = one "compound".
-# domain tells us which trade they chose, which controls
-# what product models and fields they see.
+# Now supports multiple domains via M2M.
+# primary_domain is used for backward compatibility & default product type.
 class Tenant(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     business_name = models.CharField(max_length=200)
-    domain = models.CharField(max_length=40, choices=DOMAIN_CHOICES)
+    domains = models.ManyToManyField(
+        Domain, related_name="tenants", help_text="Business domains/trades"
+    )
+    primary_domain = models.ForeignKey(
+        Domain,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="primary_for_tenants",
+        help_text="Default domain for product creation",
+    )
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -45,7 +78,14 @@ class Tenant(models.Model):
         ordering = ["-created_at"]
 
     def __str__(self):
-        return f"{self.business_name} ({self.get_domain_display()})"
+        return f"{self.business_name}"
+
+    @property
+    def domain(self):
+        """Backward compatibility: return primary_domain code if set."""
+        if self.primary_domain:
+            return self.primary_domain.code
+        return None
 
 
 # ─── ROLE ────────────────────────────────────────────────────────
@@ -156,9 +196,9 @@ class User(AbstractBaseUser, PermissionsMixin):
 
 
 # ─── STAFF INVITE ────────────────────────────────────────────────
-# Owner creates an invite → staff clicks the link → staff registers.
-# The invite binds the new user to the correct tenant and role
-# without the owner ever touching a password.
+# Owner creates an invite → staff registers using the token.
+# The invite binds the new user to the correct tenant and role.
+# NO TIME LIMIT — owner has full control to remove staff anytime.
 class StaffInvite(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="invites")
@@ -170,7 +210,6 @@ class StaffInvite(models.Model):
         User, on_delete=models.CASCADE, related_name="sent_invites"
     )
     is_used = models.BooleanField(default=False)
-    expires_at = models.DateTimeField()
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -181,13 +220,3 @@ class StaffInvite(models.Model):
     def __str__(self):
         status = "Used" if self.is_used else "Pending"
         return f"Invite to {self.email} [{status}]"
-
-    @property
-    def is_expired(self):
-        return timezone.now() > self.expires_at
-
-    def save(self, *args, **kwargs):
-        # Default expiry: 7 days from creation
-        if not self.expires_at:
-            self.expires_at = timezone.now() + timezone.timedelta(days=7)
-        super().save(*args, **kwargs)

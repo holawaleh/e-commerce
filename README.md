@@ -60,11 +60,12 @@ python manage.py runserver
 
 ---
 
-## 🔐 Authentication & Roles
+## � Key changes (v2)
 
-- Authentication uses JWT (SimpleJWT). Refresh endpoint: `POST /api/token/refresh/`.
-- Roles: **OWNER**, **MANAGER**, staff. Role gates set who can create/update/delete.
-- Tenancy is enforced: every request is scoped to the authenticated user's `tenant`.
+✅ **Multi-domain support:** A company can now manage multiple domains (e.g., pharmacy + retail). Choose one or more at registration.  
+✅ **Staff management (owner-controlled):** No time limits on invites. Owner can remove staff anytime without expiry concerns.  
+✅ **Repairs & Technical Services:** Added to domain list.  
+✅ **Domain model:** Separate `Domain` model allows flexible domain assignment.
 
 ---
 
@@ -75,10 +76,13 @@ Base API mount: `/api/`
 ### Auth (logaccess)
 
 - POST `/api/auth/register-owner/` ✅
-  - Purpose: create a new tenant + owner account.
+  - Purpose: create a new tenant + owner account (multi-domain).
   - Body (JSON):
-    - `business_name`, `domain` (choice), `email`, `password`, optional `first_name`, `last_name`.
-  - Response: `message`, `user` object, `access_token`, `refresh_token`.
+    - `business_name` (string)
+    - `domain_codes` (list of domain codes, e.g., `["pharmacy", "retail"]`)
+    - `email`, `password`
+    - optional `first_name`, `last_name`
+  - Response: `message`, `user` object, `access_token`, `refresh_token`
 
 - POST `/api/auth/register-staff/` ✅
   - Purpose: register staff using an invite token.
@@ -98,9 +102,10 @@ Base API mount: `/api/`
 
 - GET `/api/invites/` — list invites (Manager+ only).
 - POST `/api/invites/` — create invite (Manager+ only)
-  - Body: `email`, `role_type` (cannot invite OWNER via API), optional `expires_at`.
+  - Body: `email`, `role_type` (cannot invite OWNER via API)
+  - **No expiry time limit** — owner manages staff anytime via delete
 - GET `/api/invites/{id}/` — retrieve invite.
-- DELETE `/api/invites/{id}/` — delete invite (Owner only).
+- DELETE `/api/invites/{id}/` — remove staff (Owner only). **Use this anytime to revoke access.**
 - PUT/PATCH: disabled (invites are immutable once created).
 
 ### Inventory / Products (inventory)

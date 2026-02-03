@@ -4,16 +4,20 @@ from datetime import timedelta
 from django.utils import timezone
 from django.contrib.auth.password_validation import validate_password
 from rest_framework import serializers
-from .models import Tenant, User, Role, RoleType, StaffInvite, DOMAIN_CHOICES
+from .models import Tenant, User, Role, RoleType, StaffInvite, DOMAIN_CHOICES, Domain
 
 
 # ─── OWNER REGISTRATION ──────────────────────────────────────────
 # Flow: user fills form → this serializer validates → .save() creates
 # Tenant + Owner Role + User in one go.
+# Owner can now select multiple domains.
 class OwnerRegistrationSerializer(serializers.Serializer):
     # Business fields
     business_name = serializers.CharField(max_length=200)
-    domain = serializers.ChoiceField(choices=DOMAIN_CHOICES)
+    domain_codes = serializers.ListField(
+        child=serializers.ChoiceField(choices=[c[0] for c in DOMAIN_CHOICES]),
+        help_text="List of domain codes (e.g., ['pharmacy', 'retail'])",
+    )
     # Personal fields
     email = serializers.EmailField()
     password = serializers.CharField(write_only=True, min_length=8)
@@ -29,19 +33,37 @@ class OwnerRegistrationSerializer(serializers.Serializer):
         validate_password(value)
         return value
 
+    def validate_domain_codes(self, value):
+        if not value:
+            raise serializers.ValidationError("At least one domain must be selected.")
+        if len(value) != len(set(value)):
+            raise serializers.ValidationError("Duplicate domains are not allowed.")
+        return value
+
     def create(self, validated_data):
-        # Step 1 — create the compound
+        # Step 1 — create the tenant
         tenant = Tenant.objects.create(
             business_name=validated_data["business_name"],
-            domain=validated_data["domain"],
         )
-        # Step 2 — create the owner role for that compound
+
+        # Step 2 — get or create Domain objects and assign to tenant
+        domain_codes = validated_data["domain_codes"]
+        for code in domain_codes:
+            domain, _ = Domain.objects.get_or_create(code=code)
+            tenant.domains.add(domain)
+
+        # Step 3 — set primary domain (first one)
+        tenant.primary_domain = tenant.domains.first()
+        tenant.save()
+
+        # Step 4 — create the owner role for this tenant
         owner_role = Role.objects.create(
             tenant=tenant,
             role_type=RoleType.OWNER,
             description="Business owner — full access",
         )
-        # Step 3 — create the user, tied to both
+
+        # Step 5 — create the user, tied to both
         user = User.objects.create_user(
             email=validated_data["email"],
             password=validated_data["password"],
@@ -66,11 +88,9 @@ class StaffRegistrationSerializer(serializers.Serializer):
         try:
             self.invite = StaffInvite.objects.get(id=value)
         except StaffInvite.DoesNotExist:
-            raise serializers.ValidationError("Invalid or expired invite token.")
+            raise serializers.ValidationError("Invalid invite token.")
         if self.invite.is_used:
             raise serializers.ValidationError("This invite has already been used.")
-        if self.invite.is_expired:
-            raise serializers.ValidationError("This invite has expired.")
         return value
 
     def validate_email(self, value):
@@ -121,7 +141,7 @@ class LoginSerializer(serializers.Serializer):
 class StaffInviteCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = StaffInvite
-        fields = ["id", "email", "role_type", "expires_at", "created_at", "is_used"]
+        fields = ["id", "email", "role_type", "created_at", "is_used"]
         read_only_fields = ["id", "created_at", "is_used"]
 
     def validate_role_type(self, value):
@@ -146,16 +166,19 @@ class StaffInviteCreateSerializer(serializers.ModelSerializer):
         user = self.context["request"].user
         validated_data["tenant"] = user.tenant
         validated_data["invited_by"] = user
-        if "expires_at" not in validated_data:
-            validated_data["expires_at"] = timezone.now() + timedelta(days=7)
         return super().create(validated_data)
 
 
 # ─── READ SERIALIZERS (shape API responses) ─────────────────────
 class TenantReadSerializer(serializers.ModelSerializer):
+    domains = serializers.StringRelatedField(many=True, read_only=True)
+    primary_domain = serializers.CharField(
+        source="primary_domain.code", read_only=True, allow_null=True
+    )
+
     class Meta:
         model = Tenant
-        fields = ["id", "business_name", "domain", "created_at"]
+        fields = ["id", "business_name", "domains", "primary_domain", "created_at"]
 
 
 class UserReadSerializer(serializers.ModelSerializer):
@@ -186,6 +209,5 @@ class StaffInviteReadSerializer(serializers.ModelSerializer):
             "role_type",
             "invited_by",
             "is_used",
-            "expires_at",
             "created_at",
         ]

@@ -22,7 +22,7 @@ class ProductBaseSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "name",
-            "description",
+            "serial_no" "description",
             "price",
             "cost_price",
             "sku",
@@ -45,8 +45,6 @@ class HotelProductSerializer(ProductBaseSerializer):
         fields = ProductBaseSerializer.Meta.fields + [
             "room_type",
             "max_guests",
-            "beds",
-            "check_in_policy",
             "amenities",
             "is_available",
         ]
@@ -57,12 +55,10 @@ class PharmacyProductSerializer(ProductBaseSerializer):
         model = PharmacyProduct
         fields = ProductBaseSerializer.Meta.fields + [
             "manufacturer",
-            "dosage",
-            "dosage_form",
             "expiry_date",
             "batch_number",
-            "is_prescription_required",
             "category",
+            "barcode",
         ]
 
 
@@ -85,7 +81,6 @@ class AgricultureProductSerializer(ProductBaseSerializer):
         fields = ProductBaseSerializer.Meta.fields + [
             "product_type",
             "unit_of_measure",
-            "season",
             "harvest_date",
             "origin",
         ]
@@ -112,7 +107,6 @@ class FashionProductSerializer(ProductBaseSerializer):
             "size",
             "color",
             "material",
-            "season",
         ]
 
 
@@ -125,7 +119,6 @@ class FoodBeverageProductSerializer(ProductBaseSerializer):
             "weight_grams",
             "volume_ml",
             "is_organic",
-            "is_vegetarian",
             "nutritional_info",
         ]
 
